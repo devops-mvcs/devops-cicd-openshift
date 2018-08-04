@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Template
+metadata:
+    annotations:
+      iconClass: icon-stackoverflow
+      tags: deploy
+      version: 1.0.0
+      openshift.io/display-name: Springboot Boot REST BuildConfig
+      openshift.io/provider-display-name: Marcus Sacramento
+      description: BuildConfig de aplicações em Spring Boot para serviços REST
+    name: spring-boot-rest-buildconfig
+parameters:
+- name: APPLICATION_NAME
+  required: true
+  displayName: Application name
+  description: Nome da Aplciação
+  value: spring-boot-rest
+- name: GIT_URI
+  required: true
+  displayName: Git source repository
+  description: Git source URI for application
+  value: https://github.com/devops-mvcs/spring-boot-rest-example.git
+- name: GIT_REF
+  required: true
+  description: Git branch/tag reference
+  displayName: Git branch/tag reference
+  value: master
+- name: MAVEN_MIRROR_URL
+  required: false
+  displayName: Maven mirror url
+  description: Maven mirror url. If nexus is deployed locally, use nexus url (e.g. http://nexus.ci:8081/content/groups/public/)
+- name: IMAGE_STREAM_NAMESPACE
+  required: true
+  displayName: ImageStream Namespace
+  description: Namespace in which the ImageStreams for Red Hat OpenJDK image is installed. These ImageStreams are normally installed in the openshift namespace. You should only need to modify this if you've installed the ImageStreams in a different namespace/project.
+  value: openshift
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      application: ${APPLICATION_NAME}
+  spec:
+    tags:
+    - name: latest
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      application: ${APPLICATION_NAME}
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${APPLICATION_NAME}:latest
+    source:
+      git:
+        ref: ${GIT_REF}
+        uri: ${GIT_URI}
+      type: Git
+    strategy:
+      sourceStrategy:
+        env:
+        - name: MAVEN_MIRROR_URL
+          value: ${MAVEN_MIRROR_URL}
+        from:
+          kind: ImageStreamTag
+          name: redhat-openjdk18-openshift:1.1
+          namespace: ${IMAGE_STREAM_NAMESPACE}
+      type: Source
+    triggers:
+    - type: ConfigChange

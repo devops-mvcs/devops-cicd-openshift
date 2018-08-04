@@ -1,0 +1,195 @@
+apiVersion: v1
+kind: Template
+metadata:
+  annotations:
+    iconClass: icon-jenkins
+    tags: deploy, pipeline, jenkins
+    version: 1.0.0
+    openshift.io/display-name: Springboot REST Jenkins Pipeline
+    openshift.io/provider-display-name: Marcus Sacramento
+    description: Jenkins Pipeline para build de aplicações em Springboot
+  name: spring-boot-rest-jenkins-pipeline
+parameters:
+  - name: APPLICATION_NAME
+    required: true
+    displayName: Nome da Aplicação
+    description: Nome da Aplicação
+    value: spring-boot-rest
+  - name: GIT_URI_PIPELINE
+    required: true
+    displayName: Git URL Jenkinsfile
+    description: Repositório git com o Jenkinsfile
+    value: https://github.com/devops-mvcs/spring-boot-rest-example.git
+  - name: GIT_REF_PIPELINE
+    required: true
+    displayName: Branch JenkinsFile
+    description: Branch para o JenkinsPipeline
+    value: master
+  - name: JENKINSFILE_PATH
+    required: true
+    displayName: Jenkinsfile Path
+    description: Path para o arquivo do JenkinsFile
+    value: Jenkinsfile
+  - name: IMAGE_STREAM_NAMESPACE
+    required: true
+    displayName: JDK Namespace para a aplicação
+    description: Namespace da imagem base da aplicação
+    value: openshift
+  - name: MAVEN_MIRROR_URL
+    required: false
+    displayName: Mirror Maven
+    description: Mirror Maven
+  - name: NEXUS_BINARY_URI
+    required: true
+    displayName: Nexus URL
+    description: Url do Nexus para recuperar binários. Exemplo: http://nexus-ci.192.168.99.100.nip.io/repository/maven-releases/
+    value: http://nexus-ci.192.168.99.100.nip.io/repository/maven-releases/
+  - name: NEXUS_PATH_BINARY
+    required: true
+    displayName: Path Nexus para o binário
+    description: Path(Pacote) para o binário Nexus a partir do URL Release. Exemplo:com/caixaseguradora
+    value: com/khoubyari
+  - name: JAR_NAME
+    required: true
+    displayName: Nome do JAR/WAR
+    description: Nome do JAR ou WAR gerado pelo Maven e recuperado do Nexus
+    value: spring-boot-rest-example
+  - name: JAR_WAR_COMPILATION
+    required: true
+    displayName: Compilação
+    description: Informar se a compilação é jar ou war
+    value: jar
+  - name: GIT_URI_APPLICATION
+    required: true
+    displayName: Git URL da aplicação
+    description: Repositório git com o código para build
+    value: https://github.com/devops-mvcs/spring-boot-rest-example.git
+  - name: SONAR_URI
+    required: true
+    displayName: URL do SonarQube
+    description: URL do SonarQube(>2.0) para inspeção de código
+    value: http://sonarqube-ci.192.168.99.100.nip.io
+  - name: SONAR_LOGIN
+    required: true
+    displayName: Login do Sonar
+    description: Login de usuário no SonarQube
+    value: admin
+  - name: SONAR_PASSWORD
+    required: true
+    displayName: Senha do Sonar
+    description: Senha de usuário no SonarQube
+    value: admin
+  - name: TESTE_URI_DEV
+    required: true
+    displayName: URL de teste da aplicação(DEV)
+    description: URL para smoke teste da aplicação em desenvolvimento
+    value: http://spring-boot-rest-dev.192.168.99.100.nip.io/info
+  - name: TESTE_URI_TST
+    required: true
+    displayName: URL de teste da aplicação(TST)
+    description: URL para smoke teste da aplicação em teste
+    value: http://spring-boot-rest-test.192.168.99.100.nip.io/info
+objects:
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    annotations:
+      pipeline.alpha.openshift.io/uses: '[{"name": "${APPLICATION_NAME}", "namespace": "dev", "kind": "DeploymentConfig"}]'
+    name: spring-boot-rest-pipeline
+  spec:
+    source:
+      git:
+        ref: ${GIT_REF_PIPELINE}
+        uri: ${GIT_URI_PIPELINE}
+      type: Git
+    strategy:
+      type: JenkinsPipeline
+      jenkinsPipelineStrategy:
+        jenkinsfilePath: ${JENKINSFILE_PATH}
+        env:
+        - name: APPLICATION_NAME
+          value: ${APPLICATION_NAME}
+          description: Nome da Aplicação
+        - name: GIT_URI_PIPELINE
+          value: ${GIT_URI_PIPELINE}
+          description: Repositório git com o Jenkinsfile
+        - name: GIT_REF_PIPELINE
+          value: ${GIT_REF_PIPELINE}
+          description: Branch para o JenkinsPipeline
+        - name: JENKINSFILE_PATH
+          value: ${JENKINSFILE_PATH}
+          description: Path para o arquivo do JenkinsFile
+        - name: IMAGE_STREAM_NAMESPACE
+          value: ${IMAGE_STREAM_NAMESPACE}
+          description: Namespace da imagem base da aplicação
+        - name: NEXUS_BINARY_URI
+          value: ${NEXUS_BINARY_URI}
+          description: Url do Nexus para recuperar binários. Exemplo: http://nexus-ci.192.168.99.100.nip.io/repository/maven-releases/
+        - name: NEXUS_PATH_BINARY
+          value: ${NEXUS_PATH_BINARY}
+          description: Path(Pacote) para o binário Nexus a partir do URL Release. Exemplo:com/caixaseguradora
+        - name: JAR_NAME
+          value: ${JAR_NAME}
+          description: Nome do JAR ou WAR gerado pelo Maven e recuperado do Nexus
+        - name: JAR_WAR_COMPILATION
+          value: ${JAR_WAR_COMPILATION}
+          description: Informar se a compilação é jar ou war
+        - name: GIT_URI_APPLICATION
+          value: ${GIT_URI_APPLICATION}
+          description: Repositório git com o código para build
+        - name: SONAR_URI
+          value: ${SONAR_URI}
+          description: URL do SonarQube(>2.0) para inspeção de código
+        - name: SONAR_LOGIN
+          value: ${SONAR_LOGIN}
+          description: Login de usuário no SonarQube
+        - name: SONAR_PASSWORD
+          value: ${SONAR_PASSWORD}
+          description: Senha de usuário no SonarQube
+        - name: TESTE_URI_DEV
+          value: ${TESTE_URI_DEV}
+          description: URL para smoke teste da aplicação em desenvolvimento
+        - name: TESTE_URI_TST
+          value: ${TESTE_URI_TST}
+          description: URL para smoke teste da aplicação em teste
+    triggers:
+    - generic:
+        secret: FiArdDBH
+      type: Generic
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      application: ${APPLICATION_NAME}
+  spec:
+    tags:
+    - name: latest
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      application: ${APPLICATION_NAME}
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${APPLICATION_NAME}:latest
+    source:
+      git:
+        ref: ${GIT_REF}
+        uri: ${GIT_URI}
+      type: Git
+    strategy:
+      sourceStrategy:
+        env:
+        - name: MAVEN_MIRROR_URL
+          value: ${MAVEN_MIRROR_URL}
+        from:
+          kind: ImageStreamTag
+          name: redhat-openjdk18-openshift:1.1
+          namespace: ${IMAGE_STREAM_NAMESPACE}
+      type: Source
+    triggers:
+    - type: ConfigChange

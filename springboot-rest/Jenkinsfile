@@ -1,0 +1,128 @@
+properties([
+ [$class: 'BuildDiscarderProperty', strategy: [$class: 'LogRotator', numToKeepStr: '5']]
+])
+
+def mvnSettings = " --settings configuration/settings.xml -Popenshift-nexus"
+def branchBuild = ""
+def preparingInput
+def promotionInput
+def version=""
+def isGitFlow=false
+def endGitFlowInput
+def startGitFlowInput
+
+stage("Preparing") {
+ preparingInput = input(
+  id: 'preparingInput', message: 'Informar Dados para construção', parameters: [
+   [$class: 'ChoiceParameterDefinition', defaultValue: 'feature', description: 'Tipo Construção', name: 'buildType', choices: "\nfeature\nrelease\nhotfix\nmaster\ndevelop\ntag\nbinário"],
+   [$class: 'TextParameterDefinition', defaultValue: '', description: 'Identificador', name: 'buildID'],
+  ])
+ if ((preparingInput['buildType'] != "master" && preparingInput['buildType'] != "develop")) {
+  branchBuild = preparingInput['buildType']+"-"+preparingInput['buildID']
+  isGitFlow=true
+ } else {
+     branchBuild = preparingInput['buildType']
+ }
+ if (preparingInput['buildType'] == "tag") {
+  branchBuild = preparingInput['buildID']
+ }
+ echo("Construindo " + branchBuild)
+}
+node("maven") {
+ stage("Building Application") {
+  if(preparingInput['buildType'] == "binário"){
+    sh "mkdir target"
+    sh "wget ${NEXUS_BINARY_URI}"+preparingInput['buildID']+"/${JAR_NAME}-"+preparingInput['buildID']+".${JAR_WAR_COMPILATION} -o ${JAR_NAME}.${JAR_WAR_COMPILATION}"
+    sh "cp ${JAR_NAME}.${JAR_WAR_COMPILATION} target/"
+    stash name: "jar", includes: "${JAR_NAME}.${JAR_WAR_COMPILATION}"
+    version = preparingInput['buildID']
+  } else {
+    echo("Construindo " + branchBuild)
+  git url: "${GIT_URI_APPLICATION}", branch: branchBuild
+  sh "mvn package deploy -DskipTests" + mvnSettings
+  stash name: "jar", includes: "target/${JAR_NAME}.${JAR_WAR_COMPILATION}"
+  pom = readMavenPom file: 'pom.xml'
+  version = pom.version
+}
+ }
+ if(preparingInput['buildType'] != "binário"){
+ stage('Testing Application') {
+  parallel(
+   "Unit Tests": {
+    sh "mvn test" + mvnSettings
+   },
+   "Sonar Analysis": {
+    withSonarQubeEnv('Sonar') {
+     sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.2:sonar -Dsonar.branch=" + branchBuild + " -Dsonar.host.url=${SONAR_URI} -Dsonar.login=${SONAR_LOGIN} -Dsonar.password=${SONAR_PASSWORD}" + mvnSettings
+    }
+   }
+  )
+ }
+}
+ stage('Building Image') {
+  unstash name: "jar"
+  sh "oc start-build ${APPLICATION_NAME} --from-file=target/${JAR_NAME}.${JAR_WAR_COMPILATION} --follow --env APPLICATION_VERSION=" + version
+ }
+ stage('Deploying Image - DEV') {
+  sh "oc tag ci/${APPLICATION_NAME}:latest dev/${APPLICATION_NAME}:latest -n ci"
+  openshiftVerifyDeployment depCfg: '${APPLICATION_NAME}', replicaCount: 1, verifyReplicaCount: true, namespace: 'dev', waitTime: 720000
+  sh "oc env dc/${APPLICATION_NAME} APPLICATION_VERSION=" + version + " -n dev --overwrite"
+
+ }
+ stage('Test Deployed Application - DEV') {
+  sh "curl -s -X GET ${TESTE_URI_DEV}"
+ }
+
+}
+stage('Prommotion Approval') {
+ promotionInput = input(
+  id: 'promotionInput', message: 'Promover para Teste', parameters: [
+   [$class: 'TextParameterDefinition', defaultValue: '', description: 'Mudança', name: 'mudanca'],
+   [$class: 'TextParameterDefinition', defaultValue: '', description: 'Solicitante', name: 'solicitante'],
+  ])
+ echo("Número da Mudança: " + promotionInput['mudanca'])
+ echo("Número da Mudança: " + promotionInput['solicitante'])
+}
+node('maven') {
+ stage('Deploy Image - TEST') {
+  openshiftTag namespace: 'ci', srcStream: '${APPLICATION_NAME}', srcTag: 'latest', destinationNamespace: 'test', destStream: '${APPLICATION_NAME}', destTag: 'latest'
+  openshiftVerifyDeployment depCfg: '${APPLICATION_NAME}', replicaCount: 1, verifyReplicaCount: true, namespace: 'test',waitTime: 720000
+  sh "oc env dc/${APPLICATION_NAME} APPLICATION_VERSION=" + version + " -n test --overwrite"
+ }
+ stage('Test Deployed Application - TEST') {
+  sh "curl -s -X GET ${TESTE_URI_TST}"
+ }
+}
+stage("Ending git Flow") {
+  endGitFlowInput = input(
+   id: 'endGitFlowInput', message: 'Encerramento do Fluxo de Entrega', parameters: [
+    [$class: 'ChoiceParameterDefinition', defaultValue: '', description: 'Deseja encerrar git Flow?', name: 'endGitFlow', choices: "Sim\nNão"],
+    [$class: 'TextParameterDefinition', defaultValue: '', description: 'Observação', name: 'observacao'],
+   ])
+}
+node('maven') {
+  stage("JGitFlow-Finish"){
+    if(endGitFlowInput['endGitFlow']=="Sim" && isGitFlow){
+      git url: "${GIT_URI_APPLICATION}", branch: branchBuild
+      sh " mvn jgitflow:"+preparingInput['buildType']+"-finish -D"+preparingInput['buildType']+"Name="+preparingInput['buildID']+" -DnoFeatureBuild=true -DnoReleaseBuild=true -Popenshift-nexus -Dusername=\"marcus.vinicius.cardozo@gmail.com\" -Dpassword=\"marcus07\" -B"+mvnSettings
+    }
+  }
+}
+stage("Preparing git Flow") {
+  startGitFlowInput = input(
+   id: 'startGitFlowInput', message: 'Criando novo Fluxo de Entrega', parameters: [
+    [$class: 'ChoiceParameterDefinition', defaultValue: '', description: 'Deseja criar novo git Flow?', name: 'startGitFlow', choices: "Sim\nNão"],
+    [$class: 'ChoiceParameterDefinition', defaultValue: 'feature', description: 'Tipo Fluxo', name: 'startBuildType', choices: "feature\nrelease\nhotfix"],
+    [$class: 'TextParameterDefinition', defaultValue: '', description: 'Identificador', name: 'startBuildID'],
+   ])
+}
+node("maven"){
+  stage("JGitFlow-Start"){
+
+    if(startGitFlowInput['startGitFlow']=="Sim"){
+      git url: "${GIT_URI_APPLICATION}", branch: branchBuild
+      sh " mvn jgitflow:"+startGitFlowInput['startBuildType']+"-start -D"+startGitFlowInput['startBuildType']+"Name="+startGitFlowInput['startBuildID']+" -DnoFeatureBuild=true -DnoReleaseBuild=true -Popenshift-nexus -Dusername=\"marcus.vinicius.cardozo@gmail.com\" -Dpassword=\"marcus07\" -B"+mvnSettings
+    }
+  }
+
+}
